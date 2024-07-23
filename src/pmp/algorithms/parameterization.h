@@ -27,4 +27,7 @@ void harmonic_parameterization(SurfaceMesh& mesh,
 //! \ingroup algorithms
 void lscm_parameterization(SurfaceMesh& mesh);
 
+
+void scp_parameterization(SurfaceMesh& mesh);
+
 } // namespace pmp

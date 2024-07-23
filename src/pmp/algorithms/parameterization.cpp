@@ -8,6 +8,8 @@
 
 #include "pmp/surface_mesh.h"
 
+#include "Eigen/SparseCholesky"
+
 namespace pmp {
 namespace {
 
@@ -368,4 +370,176 @@ void lscm_parameterization(SurfaceMesh& mesh)
     mesh.remove_halfedge_property(weight);
 }
 
+void scp_parameterization(SurfaceMesh& mesh)
+{
+    // check precondition
+    if (!has_boundary(mesh))
+    {
+        auto what = std::string{__func__} + ": Mesh has no boundary.";
+        throw InvalidInputException(what);
+    }
+
+    auto pos = mesh.vertex_property<Point>("v:point");
+    auto tex = mesh.vertex_property<TexCoord>("v:tex");
+
+    // set boundary indices
+    Eigen::SparseMatrix<std::complex<float>> B(mesh.n_vertices(),
+                                               mesh.n_vertices());
+
+    Eigen::VectorXcf e = Eigen::VectorXcf::Zero(mesh.n_vertices());
+
+    //set_boundary_indices
+    {
+        std::vector<Eigen::Triplet<std::complex<float>>> b_triplets;
+        uint32_t num_boundary_vertices = 0;
+        for (uint32_t v = 0; v < mesh.n_vertices(); ++v)
+        {
+            Vertex vi(v);
+
+            if (mesh.is_boundary(vi))
+            {
+                b_triplets.push_back(
+                    Eigen::Triplet<std::complex<float>>(v, v, 1.0));
+                num_boundary_vertices++;
+                e(v) = 1.0;
+            }
+        }
+        B.setFromTriplets(b_triplets.begin(), b_triplets.end());
+
+        float nb = 1.f / std::sqrt(float(num_boundary_vertices));
+        for (uint32_t v = 0; v < mesh.n_vertices(); ++v)
+        {
+            e(v) *= nb;
+        }
+    }
+
+    auto cotan = [&](Halfedge he) {
+        if (mesh.is_boundary(he))
+        {
+            return 0.f;
+        }
+
+        Vertex v0 = mesh.to_vertex(he);
+        Vertex v1 = mesh.to_vertex(mesh.next_halfedge(he));
+        Vertex v2 = mesh.to_vertex(mesh.next_halfedge(mesh.next_halfedge(he)));
+
+        Point p0 = pos[v0];
+        Point p1 = pos[v1];
+        Point p2 = pos[v2];
+
+        auto d1 = p1 - p2;
+        auto d2 = p1 - p0;
+
+        float area = norm(cross(d1, d2));
+
+        return std::max(0.f, dot(d1, d2) / area);
+    };
+
+    // build conformal energy
+    Eigen::SparseMatrix<std::complex<float>> E(mesh.n_vertices(),
+                                               mesh.n_vertices());
+    {
+        std::vector<Eigen::Triplet<std::complex<float>>> e_triplets;
+
+        // Dirichlet energy
+        for (uint32_t v = 0; v < mesh.n_vertices(); ++v)
+        {
+            float sum_coefficients = 0.0;
+
+            Vertex vi(v);
+
+            const Halfedge init_he = mesh.halfedge(vi);
+
+            Halfedge he = init_he;
+
+            do
+            {
+                Halfedge h0 = he;
+                Halfedge h1 = mesh.opposite_halfedge(he);
+
+                Vertex vv = mesh.to_vertex(he);
+
+                double coef = 0.25 * (cotan(h0) + cotan(h1));
+                sum_coefficients += coef;
+
+                e_triplets.push_back(
+                    Eigen::Triplet<std::complex<float>>(v, vv.idx(), -coef));
+
+                he = mesh.next_halfedge(h1);
+
+            } while (he != init_he);
+
+            e_triplets.push_back(
+                Eigen::Triplet<std::complex<float>>(v, v, sum_coefficients));
+        }
+
+        // subtract area terms
+        std::complex<float> i(0, 0.25);
+
+        for (uint32_t h = 0; h < mesh.n_halfedges(); ++h)
+        {
+            Halfedge he(h);
+            if (mesh.is_boundary(he))
+            {
+                Vertex v0 = mesh.to_vertex(he);
+                Vertex v1 = mesh.to_vertex(mesh.opposite_halfedge(he));
+
+                e_triplets.push_back(Eigen::Triplet<std::complex<float>>(
+                    v0.idx(), v1.idx(), -i));
+                e_triplets.push_back(
+                    Eigen::Triplet<std::complex<float>>(v1.idx(), v0.idx(), i));
+            }
+        }
+
+        E.setFromTriplets(e_triplets.begin(), e_triplets.end());
+    }
+
+    E += std::complex<float>(1e-8) * B;
+
+    // smallest eigenvector using inverse power method
+    Eigen::VectorXcf x = Eigen::VectorXcf::Random(mesh.n_vertices());
+    {
+        int max_iter = 32;
+
+        // prefactor
+        Eigen::SimplicialLDLT<Eigen::SparseMatrix<std::complex<float>>> solver(
+            E);
+
+        for (int i = 0; i < max_iter; i++)
+        {
+            // backsolve
+            x = B * x - e.dot(x) * e;
+
+            x = solver.solve(x);
+
+            // normalize
+            x.normalize();
+        }
+    }
+
+    // extract uv
+    for (uint32_t v = 0; v < mesh.n_vertices(); ++v)
+    {
+        Vertex vi(v);
+        tex[vi][0] = x(v).real();
+        tex[vi][1] = x(v).imag();
+    }
+
+    // normalize
+    // 
+    // scale tex coordinates to unit square
+    TexCoord bbmin(1, 1), bbmax(0, 0);
+    for (auto v : mesh.vertices())
+    {
+        bbmin = min(bbmin, tex[v]);
+        bbmax = max(bbmax, tex[v]);
+    }
+    bbmax -= bbmin;
+    Scalar s = std::max(bbmax[0], bbmax[1]);
+    for (auto v : mesh.vertices())
+    {
+        tex[v] -= bbmin;
+        tex[v] /= s;
+    }    
+}
 } // namespace pmp

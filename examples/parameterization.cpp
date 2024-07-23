@@ -83,6 +83,23 @@ void Viewer::process_imgui()
             set_draw_mode("Texture");
             update_mesh();
         }
+
+        ImGui::Spacing();
+        if (ImGui::Button("Spectral Conformal Parameterization Map"))
+        {
+            try
+            {
+                scp_parameterization(mesh_);
+            }
+            catch (const std::exception& e)
+            {
+                std::cerr << e.what() << std::endl;
+                return;
+            }
+            renderer_.use_checkerboard_texture();
+            set_draw_mode("Texture");
+            update_mesh();
+        }
     }
 }
 
