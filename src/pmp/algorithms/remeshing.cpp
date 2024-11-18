@@ -276,8 +276,8 @@ private:
 
     bool is_too_long(Vertex v0, Vertex v1) const
     {
-        return distance(points_[v0], points_[v1]) >
-               4.0 / 3.0 * std::min(vsizing_[v0], vsizing_[v1]);
+        return distance(points_[v0], points_[v1]) > 0.0001f + 0.1;
+               //4.0 / 3.0 * std::min(vsizing_[v0], vsizing_[v1]);
     }
     bool is_too_short(Vertex v0, Vertex v1) const
     {
@@ -340,13 +340,13 @@ void Remeshing::uniform_remeshing(Scalar edge_length, unsigned int iterations,
     {
         split_long_edges();
 
-        vertex_normals(mesh_);
-
-        collapse_short_edges();
-
-        flip_edges();
-
-        tangential_smoothing(5);
+        //vertex_normals(mesh_);
+        //
+        //collapse_short_edges();
+        //
+        //flip_edges();
+        //
+        //tangential_smoothing(5);
     }
 
     remove_caps();
@@ -644,7 +644,7 @@ void Remeshing::split_long_edges()
     bool ok, is_feature, is_boundary;
     int i;
 
-    for (ok = false, i = 0; !ok && i < 10; ++i)
+    for (ok = false, i = 0; !ok && i < 1; ++i)
     {
         ok = true;
 

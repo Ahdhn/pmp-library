@@ -8,6 +8,10 @@
 
 #include <imgui.h>
 
+#include "pmp/algorithms/utilities.h"
+
+#include "pmp/io/io.h"
+
 using namespace pmp;
 
 class Viewer : public MeshViewer
@@ -18,6 +22,48 @@ public:
 protected:
     void process_imgui() override;
 };
+
+void mesh_statistics(SurfaceMesh& mesh)
+{
+    float avg_edge_len = 0;
+    float max_edge_len = std::numeric_limits<float>::min();
+    float min_edge_len = std::numeric_limits<float>::max();
+    float avg_vertex_valence = 0;
+    float max_vertex_valence = std::numeric_limits<int>::min();
+    float min_vertex_valence = std::numeric_limits<int>::max();
+
+    for (auto e : mesh.edges())
+    {
+        auto v0 = mesh.vertex(e, 0);
+        auto v1 = mesh.vertex(e, 1);
+
+        float l = distance(mesh.vertex_property<Point>("v:point")[v0],
+                           mesh.vertex_property<Point>("v:point")[v1]);
+
+        avg_edge_len += l;
+        max_edge_len = std::max(max_edge_len, l);
+        min_edge_len = std::min(min_edge_len, l);
+    }
+
+    avg_edge_len /= mesh.n_edges();
+
+    for (auto v : mesh.vertices())
+    {
+        float valence = float(mesh.valence(v));
+
+        avg_vertex_valence += valence;
+        max_vertex_valence = std::max(max_vertex_valence, valence);
+        min_vertex_valence = std::min(min_vertex_valence, valence);
+    }
+    avg_vertex_valence /= mesh.n_vertices();
+
+    printf(
+        "\n Mesh Stats: Avg Edge Length= %f, Max Edge Length= %f, Min Edge "
+        "Length= %f, Avg Vertex Valence= %f, Max Vertex Valence= %f, Min "
+        "Vertex Valence= %f\n",
+        avg_edge_len, max_edge_len, min_edge_len, avg_vertex_valence,
+        max_vertex_valence, min_vertex_valence);
+}
 
 Viewer::Viewer(const char* title, int width, int height)
     : MeshViewer(title, width, height)
@@ -71,10 +117,10 @@ void Viewer::process_imgui()
         static int n_iterations{10};
         ImGui::SliderInt("Iterations##uniform", &n_iterations, 1, 20);
 
-        static bool use_projection{true};
+        static bool use_projection{false};
         ImGui::Checkbox("Use Projection##uniform", &use_projection);
 
-        static bool scale_lengths{true};
+        static bool scale_lengths{false};
         ImGui::Checkbox("Scale Lengths##uniform", &scale_lengths);
 
         ImGui::Spacing();
@@ -151,14 +197,42 @@ void Viewer::process_imgui()
 
 int main(int argc, char** argv)
 {
-#ifndef __EMSCRIPTEN__
-    Viewer window("Remeshing", 800, 600);
-    if (argc == 2)
-        window.load_mesh(argv[1]);
-    return window.run();
-#else
-    Viewer window("Remeshing", 800, 600);
-    window.load_mesh(argc == 2 ? argv[1] : "input.off");
-    return window.run();
-#endif
+    SurfaceMesh mesh_;
+
+    read(mesh_, std::string(argv[1]));
+
+    int n_iterations = 1;
+
+    double edge_length = mean_edge_length(mesh_);
+
+    std::cout << "\n #### Input #Faces= " << mesh_.n_faces()
+              << " #Vertices=" << mesh_.n_vertices() << "\n";
+    mesh_statistics(mesh_);
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    uniform_remeshing(mesh_, edge_length, n_iterations, false);
+
+    auto stop = std::chrono::high_resolution_clock::now();
+
+    std::cout << "\n $$$$ Uniform remeshing took = "
+              << std::chrono::duration<float, std::milli>(stop - start).count()
+              << "(ms)\n";
+
+    std::cout << "\n #### Output #Faces= " << mesh_.n_faces()
+              << " #Vertices=" << mesh_.n_vertices() << "\n";
+    mesh_statistics(mesh_);
+
+    write(mesh_, std::string("pmp_remesh.obj"));
+
+    //#ifndef __EMSCRIPTEN__
+    //    Viewer window("Remeshing", 800, 600);
+    //    if (argc == 2)
+    //        window.load_mesh(argv[1]);
+    //    return window.run();
+    //#else
+    //    Viewer window("Remeshing", 800, 600);
+    //    window.load_mesh(argc == 2 ? argv[1] : "input.off");
+    //    return window.run();
+    //#endif
 }
