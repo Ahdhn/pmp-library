@@ -96,6 +96,15 @@ if(EMSCRIPTEN AND PMP_BUILD_VIS)
       LINK_FLAGS
       "--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/data/shell.html --preload-file ${PROJECT_SOURCE_DIR}/data/off/fandisk.off@input.off"
   )
+  
+  add_executable(sec sec.cpp data/shell.html)
+  target_link_libraries(sec pmp_vis)
+  set_target_properties(
+    sec
+    PROPERTIES
+      LINK_FLAGS
+      "--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/data/shell.html --preload-file ${PROJECT_SOURCE_DIR}/data/off/fandisk.off@input.off"
+  )
 
   add_executable(parameterization parameterization.cpp data/shell.html)
   target_link_libraries(parameterization pmp_vis)
@@ -146,6 +155,9 @@ else()
 
     add_executable(decimation decimation.cpp)
     target_link_libraries(decimation pmp_vis)
+	
+	add_executable(sec sec.cpp)
+    target_link_libraries(sec pmp_vis)
 
     add_executable(remeshing remeshing.cpp)
     target_link_libraries(remeshing pmp_vis)
